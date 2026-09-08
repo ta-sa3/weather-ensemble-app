@@ -67,7 +67,7 @@ def fetch_hourly_ensemble_data(latitude, longitude):
         return None, None
 
 # ==========================================
-# 3. GeminiによるAI分析関数 (最新モデル gemini-3.6-flash を指定)
+# 3. GeminiによるAI分析関数 (最新モデル gemini-3.6-flash を使用)
 # ==========================================
 def analyze_ensemble_with_gemini(api_key, city_name, df_prob, df_precip):
     client = genai.Client(api_key=api_key)
@@ -112,7 +112,7 @@ Markdown形式で、見出しを使って見やすく出力してください。
     target_model = 'gemini-3.6-flash'
     last_error = None
 
-    # サーバー混雑発生時は最大3回まで自動リトライ
+    # サーバー一時混雑時は最大3回自動リトライ
     for attempt in range(3):
         try:
             response = client.models.generate_content(
@@ -133,12 +133,19 @@ st.title("🌀 マルチモデルAIアンサンブル気象予報")
 st.caption("日本(JMA)・米国(GFS)・欧州(ECMWF)の3大気象モデルを折れ線グラフで比較し、Geminiが予測確信度を判定します。")
 
 st.sidebar.header("⚙️ 設定")
-api_key_input = st.sidebar.text_input("Gemini API Key", type="password", help="Google AI Studioで発行したAPIキーを入力してください")
+
+# Streamlit Secretsからキーを自動取得。無ければ手動入力を表示
+if "GEMINI_API_KEY" in st.secrets:
+    api_key_input = st.secrets["GEMINI_API_KEY"]
+    st.sidebar.success("🔑 APIキー自動読み込み完了")
+else:
+    api_key_input = st.sidebar.text_input("Gemini API Key", type="password", help="Google AI Studioで発行したAPIキーを入力してください")
+
 selected_city = st.sidebar.selectbox("対象エリアを選択", list(CITY_COORDINATES.keys()))
 
 if st.sidebar.button("アンサンブル解析を実行", type="primary"):
     if not api_key_input:
-        st.warning("⚠️ サイドバーに Gemini API キーを入力してください。")
+        st.warning("⚠️ Streamlit SecretsにAPIキーを設定するか、サイドバーに入力してください。")
     else:
         lat, lng = CITY_COORDINATES[selected_city]
         
@@ -184,4 +191,4 @@ if st.sidebar.button("アンサンブル解析を実行", type="primary"):
                 st.markdown(ai_result)
 
 else:
-    st.info("👈 サイドバーでAPIキーを入力し、「アンサンブル解析を実行」ボタンを押してください。")
+    st.info("👈 エリアを選択し、「アンサンブル解析を実行」ボタンを押してください。")
