@@ -4,6 +4,7 @@ import requests
 import json
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 from google import genai
 
 # ページ基本設定
@@ -48,7 +49,9 @@ def get_detailed_weather(lat, lon):
         "forecast_minutely_15": 12,
         "forecast_days": 2
     }
-    res = requests.get(url, params=params)
+    # キャッシュを回避するためにヘッダーを設定
+    headers = {"Cache-Control": "no-cache"}
+    res = requests.get(url, params=params, headers=headers)
     return res.json()
 
 def analyze_stability_with_gemini(location_name, weather_data, api_key):
@@ -72,7 +75,6 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
     回答は親しみやすく読みやすいMarkdown形式（150〜250文字程度）で作成してください。
     """
 
-    # 3.6-flash を最優先とし、制限時のみフォールバック
     models_to_try = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
@@ -83,7 +85,6 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
             )
             return response.text
         except Exception as e:
-            # 429(上限超過) または 503(混雑) の場合は次のモデルへフォールバック
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                 continue
             elif "503" in str(e) or "UNAVAILABLE" in str(e):
@@ -92,33 +93,41 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
             else:
                 raise e
                     
-    return "⚠️ 全モデルの無料利用枠上限に達しました。夕方16時の制限解除後にお試しいただくか、上の表・グラフデータをご参照ください。"
+    return "⚠️ 全モデルの無料利用枠上限に達しました。時間をおいてから再度お試しいただくか、上のデータをご参照ください。"
 
 # UI表示
 st.title("🌦️ 安定度・気温・雨雲リアルタイム解析")
 
-selected_loc = st.selectbox("エリアを選択してください", list(LOCATIONS.keys()))
-
-# ボタンを横並びに配置
-col_btn1, col_btn2 = st.columns(2)
-get_data_clicked = col_btn1.button("📊 気象データを取得 (無料)")
-analyze_ai_clicked = col_btn2.button("🤖 AI分析を実行 (API消費)")
-
-# データ保持用セッションステートの初期化
+# セッション状態の初期化
 if "current_weather" not in st.session_state:
     st.session_state.current_weather = None
 if "current_location" not in st.session_state:
     st.session_state.current_location = None
+if "fetched_at" not in st.session_state:
+    st.session_state.fetched_at = None
 
-# 1. 気象データ取得ボタンが押された場合
+selected_loc = st.selectbox("エリアを選択してください", list(LOCATIONS.keys()))
+
+# エリアを変更したら古いデータを自動クリア
+if st.session_state.current_location != selected_loc:
+    st.session_state.current_weather = None
+    st.session_state.current_location = selected_loc
+
+# ボタンの並び
+col_btn1, col_btn2 = st.columns(2)
+get_data_clicked = col_btn1.button("🔄 最新データを取得 (無料)")
+analyze_ai_clicked = col_btn2.button("🤖 AI分析を実行 (API消費)")
+
+# 1. 「最新データを取得」ボタンが押された場合
 if get_data_clicked:
     with st.spinner("最新の気象データを取得中..."):
         coords = LOCATIONS[selected_loc]
         st.session_state.current_weather = get_detailed_weather(coords["lat"], coords["lon"])
         st.session_state.current_location = selected_loc
+        st.session_state.fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# 気象データが保持されている場合に表示
-if st.session_state.current_weather and st.session_state.current_location == selected_loc:
+# 気象データが存在する場合に表示
+if st.session_state.current_weather:
     weather_data = st.session_state.current_weather
     hourly = weather_data.get("hourly", {})
     times_all = [t.replace("T", " ") for t in hourly.get("time", [])]
@@ -127,6 +136,9 @@ if st.session_state.current_weather and st.session_state.current_location == sel
     precips_all = hourly.get("precipitation", [])
 
     st.subheader(f"📊 {selected_loc} の気象状態")
+    if st.session_state.fetched_at:
+        st.caption(f"最終取得日時: {st.session_state.fetched_at}")
+
     c1, c2, c3 = st.columns(3)
     if temps_all:
         c1.metric("現在の気温", f"{temps_all[0]} ℃")
@@ -166,15 +178,17 @@ if st.session_state.current_weather and st.session_state.current_location == sel
 
 # 2. AI分析ボタンが押された場合
 if analyze_ai_clicked:
-    if not st.session_state.current_weather or st.session_state.current_location != selected_loc:
+    # まだデータがない場合は自動取得
+    if not st.session_state.current_weather:
         coords = LOCATIONS[selected_loc]
         st.session_state.current_weather = get_detailed_weather(coords["lat"], coords["lon"])
         st.session_state.current_location = selected_loc
+        st.session_state.fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if not GEMINI_API_KEY:
         st.error("🔑 APIキーが検出されませんでした。Secrets を確認してください。")
     else:
-        with st.spinner("Gemini API (3.6-flash) でAI気象解析を生成中..."):
+        with st.spinner("Gemini API でAI気象解析を生成中..."):
             result = analyze_stability_with_gemini(selected_loc, st.session_state.current_weather, GEMINI_API_KEY)
             st.subheader("🤖 AI気象解析コメント")
             st.markdown(result)
