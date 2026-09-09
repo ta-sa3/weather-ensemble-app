@@ -26,8 +26,9 @@ CITY_COORDINATES = {
 
 # ==========================================
 # 2. データ取得関数 (Open-Meteo API)
+# 短時間キャッシュ(ttl=300秒=5分)で最新データを自動維持
 # ==========================================
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=300)
 def fetch_hourly_ensemble_data(latitude, longitude):
     url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&hourly=precipitation_probability,precipitation&timezone=Asia%2FTokyo&models=jma_seamless,gfs_seamless,ecmwf_ifs025"
     
@@ -67,8 +68,10 @@ def fetch_hourly_ensemble_data(latitude, longitude):
         return None, None
 
 # ==========================================
-# 3. GeminiによるAI分析関数 (最新モデル gemini-3.6-flash を使用)
+# 3. GeminiによるAI分析関数 (gemini-3.6-flash)
+# 取得データをもとにAI分析結果も短時間(5分)キャッシュして高速化
 # ==========================================
+@st.cache_data(ttl=300)
 def analyze_ensemble_with_gemini(api_key, city_name, df_prob, df_precip):
     client = genai.Client(api_key=api_key)
     
@@ -112,7 +115,6 @@ Markdown形式で、見出しを使って見やすく出力してください。
     target_model = 'gemini-3.6-flash'
     last_error = None
 
-    # サーバー一時混雑時は最大3回自動リトライ
     for attempt in range(3):
         try:
             response = client.models.generate_content(
@@ -134,7 +136,7 @@ st.caption("日本(JMA)・米国(GFS)・欧州(ECMWF)の3大気象モデルを�
 
 st.sidebar.header("⚙️ 設定")
 
-# Streamlit Secretsからキーを自動取得。無ければ手動入力を表示
+# Streamlit Secretsからキーを自動取得
 if "GEMINI_API_KEY" in st.secrets:
     api_key_input = st.secrets["GEMINI_API_KEY"]
     st.sidebar.success("🔑 APIキー自動読み込み完了")
@@ -143,52 +145,58 @@ else:
 
 selected_city = st.sidebar.selectbox("対象エリアを選択", list(CITY_COORDINATES.keys()))
 
-if st.sidebar.button("アンサンブル解析を実行", type="primary"):
-    if not api_key_input:
-        st.warning("⚠️ Streamlit SecretsにAPIキーを設定するか、サイドバーに入力してください。")
-    else:
-        lat, lng = CITY_COORDINATES[selected_city]
-        
-        with st.spinner("気象モデルデータを取得＆解析中..."):
-            df_prob, df_precip = fetch_hourly_ensemble_data(lat, lng)
-            
-            if df_prob is not None and df_precip is not None:
-                st.subheader(f"📊 {selected_city}の時系列モデル比較データ")
-                
-                tab1, tab2, tab3 = st.tabs(["🌧️ 降水確率 (%)", "💧 降水量 (mm/h)", "📋 Rawデータ表"])
-                
-                with tab1:
-                    df_prob_melted = df_prob.melt(id_vars=["時刻"], var_name="気象モデル", value_name="降水確率(%)")
-                    fig_prob = px.line(
-                        df_prob_melted, x="時刻", y="降水確率(%)", color="気象モデル",
-                        markers=True, title="12時間先までの降水確率推移",
-                        color_discrete_map={"気象庁 (JMA)": "#1f77b4", "米国 (GFS)": "#ff7f0e", "欧州 (ECMWF)": "#2ca02c"}
-                    )
-                    fig_prob.update_yaxes(range=[0, 105])
-                    st.plotly_chart(fig_prob, use_container_width=True)
-                    
-                with tab2:
-                    df_precip_melted = df_precip.melt(id_vars=["時刻"], var_name="気象モデル", value_name="降水量(mm)")
-                    fig_precip = px.line(
-                        df_precip_melted, x="時刻", y="降水量(mm)", color="気象モデル",
-                        markers=True, title="12時間先までの予想降水量推移",
-                        color_discrete_map={"気象庁 (JMA)": "#1f77b4", "米国 (GFS)": "#ff7f0e", "欧州 (ECMWF)": "#2ca02c"}
-                    )
-                    st.plotly_chart(fig_precip, use_container_width=True)
-                    
-                with tab3:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.caption("降水確率(%)")
-                        st.dataframe(df_prob, hide_index=True)
-                    with col2:
-                        st.caption("降水量(mm/h)")
-                        st.dataframe(df_precip, hide_index=True)
+# 手動で強制リフレッシュ（最新取得）するためのボタンも設置
+if st.sidebar.button("🔄 手動でデータを再更新"):
+    st.cache_data.clear()
+    st.rerun()
 
-                st.markdown("---")
-                st.subheader("🤖 Geminiによるアンサンブル解析結論")
+# ------------------------------------------
+# 開いた瞬間に自動で最新データを取得・描画する処理
+# ------------------------------------------
+if not api_key_input:
+    st.warning("⚠️ Streamlit SecretsにAPIキーを設定するか、サイドバーに入力してください。")
+else:
+    lat, lng = CITY_COORDINATES[selected_city]
+    
+    with st.spinner(f"最新の気象モデルデータを取得中 ({selected_city})..."):
+        df_prob, df_precip = fetch_hourly_ensemble_data(lat, lng)
+        
+        if df_prob is not None and df_precip is not None:
+            st.subheader(f"📊 {selected_city}の時系列モデル比較データ")
+            
+            tab1, tab2, tab3 = st.tabs(["🌧️ 降水確率 (%)", "💧 降水量 (mm/h)", "📋 Rawデータ表"])
+            
+            with tab1:
+                df_prob_melted = df_prob.melt(id_vars=["時刻"], var_name="気象モデル", value_name="降水確率(%)")
+                fig_prob = px.line(
+                    df_prob_melted, x="時刻", y="降水確率(%)", color="気象モデル",
+                    markers=True, title="12時間先までの降水確率推移",
+                    color_discrete_map={"気象庁 (JMA)": "#1f77b4", "米国 (GFS)": "#ff7f0e", "欧州 (ECMWF)": "#2ca02c"}
+                )
+                fig_prob.update_yaxes(range=[0, 105])
+                st.plotly_chart(fig_prob, use_container_width=True)
+                
+            with tab2:
+                df_precip_melted = df_precip.melt(id_vars=["時刻"], var_name="気象モデル", value_name="降水量(mm)")
+                fig_precip = px.line(
+                    df_precip_melted, x="時刻", y="降水量(mm)", color="気象モデル",
+                    markers=True, title="12時間先までの予想降水量推移",
+                    color_discrete_map={"気象庁 (JMA)": "#1f77b4", "米国 (GFS)": "#ff7f0e", "欧州 (ECMWF)": "#2ca02c"}
+                )
+                st.plotly_chart(fig_precip, use_container_width=True)
+                
+            with tab3:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.caption("降水確率(%)")
+                    st.dataframe(df_prob, hide_index=True)
+                with col2:
+                    st.caption("降水量(mm/h)")
+                    st.dataframe(df_precip, hide_index=True)
+
+            st.markdown("---")
+            st.subheader("🤖 Geminiによるアンサンブル解析結論")
+            
+            with st.spinner("Geminiが最新のアンサンブル解析を行っています..."):
                 ai_result = analyze_ensemble_with_gemini(api_key_input, selected_city, df_prob, df_precip)
                 st.markdown(ai_result)
-
-else:
-    st.info("👈 エリアを選択し、「アンサンブル解析を実行」ボタンを押してください。")
