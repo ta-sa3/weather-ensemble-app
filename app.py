@@ -7,8 +7,8 @@ from google import genai
 # ページ基本設定
 st.set_page_config(page_title="気象安定度・雨雲解析ダッシュボード", layout="centered")
 
-# APIキーの取得（Streamlit Secrets または環境変数）
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# APIキーの取得（Streamlit Secrets または環境変数から）
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
 
 # エリアリスト（緯度・経度）
 LOCATIONS = {
@@ -62,7 +62,7 @@ def analyze_stability_with_gemini(location_name, weather_data):
     """
 
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-2.0-flash',
         contents=prompt
     )
     return response.text
@@ -74,7 +74,7 @@ selected_loc = st.selectbox("エリアを選択してください", list(LOCATIO
 
 if st.button("AI分析を実行"):
     if not GEMINI_API_KEY:
-        st.error("GEMINI_API_KEY が設定されていません。Streamlit の Secrets 設定を確認してください。")
+        st.error("GEMINI_API_KEY が設定されていません。Streamlit Cloud の Settings -> Secrets で GEMINI_API_KEY を設定してください。")
     else:
         with st.spinner("気象データ取得＆AI分析中..."):
             coords = LOCATIONS[selected_loc]
