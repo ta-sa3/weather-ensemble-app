@@ -46,7 +46,7 @@ def get_detailed_weather(lat, lon):
         ],
         "timezone": "Asia/Tokyo",
         "forecast_minutely_15": 12,
-        "forecast_days": 1
+        "forecast_days": 2  # 24時間分を確実に確保するため2日分取得
     }
     res = requests.get(url, params=params)
     return res.json()
@@ -56,7 +56,7 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
     
     prompt = f"""
     あなたは高度な気象アナリストです。
-    以下のデータは【{location_name}】の今後3時間の気象予測データ(Open-Meteo)です。
+    以下のデータは【{location_name}】の気象予測データ(Open-Meteo)です。
 
     データ概要:
     - 15分単位の降水量予測: {weather_data.get('minutely_15', {})}
@@ -67,20 +67,18 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
 
     1. **総合評価**（例: 安定・やや不安定・荒天の警戒が必要 など）
     2. **気温・降水量・大気安定度の分析**:
-       - 気温や降水確率の推移、湿度・風速から見た急な雨や前線通過のリスクを簡潔に解説してください。
+       - 今後24時間の気温や降水確率の推移、湿度・風速から見た急な雨や前線通過のリスクを簡潔に解説してください。
     3. **雨のリスクと推移**:
-       - 今後3時間以内に雨が降るか、降水量・確率のピークは何時ごろか。
+       - 今後24時間以内に雨が降るか、降水量・確率のピークは何時ごろか。
     4. **住民への具体的なアドバイス**:
        - 服装選び、洗濯物、傘の準備、外出時の注意点など。
 
     回答は親しみやすく読みやすいMarkdown形式（150〜250文字程度）で作成してください。
     """
 
-    # 試行するモデル順（高負荷時のフォールバック用）
     models_to_try = ['gemini-3.6-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
-        # 各モデルで最大2回リトライ
         for attempt in range(2):
             try:
                 response = client.models.generate_content(
@@ -89,7 +87,6 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
                 )
                 return response.text
             except Exception as e:
-                # 503エラー（一時的高負荷）の場合は1.5秒待ってリトライ
                 if "503" in str(e) or "UNAVAILABLE" in str(e):
                     time.sleep(1.5)
                     continue
@@ -112,36 +109,55 @@ if st.button("AI分析・データ取得を実行"):
                 coords = LOCATIONS[selected_loc]
                 weather_data = get_detailed_weather(coords["lat"], coords["lon"])
                 
-                # 今後の時間別データを表示用カードとして整形
                 hourly = weather_data.get("hourly", {})
-                times = hourly.get("time", [])[:6] # 今後6時間分
-                temps = hourly.get("temperature_2m", [])[:6]
-                probs = hourly.get("precipitation_probability", [])[:6]
-                precips = hourly.get("precipitation", [])[:6]
+                times_all = [t.replace("T", " ") for t in hourly.get("time", [])]
+                temps_all = hourly.get("temperature_2m", [])
+                probs_all = hourly.get("precipitation_probability", [])
+                precips_all = hourly.get("precipitation", [])
 
-                # 気象データの主要メトリクス表示
-                st.subheader(f"📊 {selected_loc} の直近気象データ")
+                # メトリクス表示（現在の値）
+                st.subheader(f"📊 {selected_loc} の現在の気象状態")
                 col1, col2, col3 = st.columns(3)
-                if temps:
-                    col1.metric("現在の気温", f"{temps[0]} ℃")
-                if probs:
-                    col2.metric("現在の降水確率", f"{probs[0]} %")
-                if precips:
-                    col3.metric("直近の予測降水量", f"{precips[0]} mm")
+                if temps_all:
+                    col1.metric("現在の気温", f"{temps_all[0]} ℃")
+                if probs_all:
+                    col2.metric("現在の降水確率", f"{probs_all[0]} %")
+                if precips_all:
+                    col3.metric("直近の予測降水量", f"{precips_all[0]} mm")
 
-                # 時間別詳細表
-                if times:
-                    df = pd.DataFrame({
-                        "時間": [t.split("T")[1] for t in times],
-                        "気温 (℃)": temps,
-                        "降水確率 (%)": probs,
-                        "降水量 (mm)": precips
+                # データ表示（直近6時間 vs 24時間データ）
+                st.subheader("📅 予報データ")
+                tab1, tab2, tab3 = st.tabs(["直近6時間", "24時間一覧", "24時間グラフ"])
+
+                with tab1:
+                    df_6h = pd.DataFrame({
+                        "時間": [t.split(" ")[1] for t in times_all[:6]],
+                        "気温 (℃)": temps_all[:6],
+                        "降水確率 (%)": probs_all[:6],
+                        "降水量 (mm)": precips_all[:6]
                     })
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df_6h, use_container_width=True)
+
+                with tab2:
+                    df_24h = pd.DataFrame({
+                        "日時": times_all[:24],
+                        "気温 (℃)": temps_all[:24],
+                        "降水確率 (%)": probs_all[:24],
+                        "降水量 (mm)": precips_all[:24]
+                    })
+                    st.dataframe(df_24h, use_container_width=True, height=300)
+
+                with tab3:
+                    chart_data = pd.DataFrame({
+                        "時間": [t.split(" ")[1] for t in times_all[:24]],
+                        "気温 (℃)": temps_all[:24],
+                        "降水量 (mm)": precips_all[:24]
+                    }).set_index("時間")
+                    st.line_chart(chart_data)
 
                 # GeminiのAI解析結果表示
                 result = analyze_stability_with_gemini(selected_loc, weather_data, GEMINI_API_KEY)
-                st.subheader(f"🤖 AI気象解析コメント")
+                st.subheader("🤖 AI気象解析コメント (今後24時間分析)")
                 st.markdown(result)
 
             except Exception as e:
