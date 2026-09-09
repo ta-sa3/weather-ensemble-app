@@ -7,8 +7,12 @@ from google import genai
 # ページ基本設定
 st.set_page_config(page_title="気象安定度・雨雲解析ダッシュボード", layout="centered")
 
-# APIキーの取得（Streamlit Secrets または環境変数から）
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+# APIキーの取得（Streamlit Secrets または 環境変数を安全に取得）
+GEMINI_API_KEY = None
+if "GEMINI_API_KEY" in st.secrets:
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+elif "GEMINI_API_KEY" in os.environ:
+    GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
 # エリアリスト（緯度・経度）
 LOCATIONS = {
@@ -36,8 +40,9 @@ def get_detailed_weather(lat, lon):
     res = requests.get(url, params=params)
     return res.json()
 
-def analyze_stability_with_gemini(location_name, weather_data):
-    client = genai.Client(api_key=GEMINI_API_KEY)
+def analyze_stability_with_gemini(location_name, weather_data, api_key):
+    # APIキーを明示的に渡してClientをインスタンス化
+    client = genai.Client(api_key=api_key)
     
     prompt = f"""
     あなたは高度な気象アナリストです。
@@ -74,12 +79,15 @@ selected_loc = st.selectbox("エリアを選択してください", list(LOCATIO
 
 if st.button("AI分析を実行"):
     if not GEMINI_API_KEY:
-        st.error("GEMINI_API_KEY が設定されていません。Streamlit Cloud の Settings -> Secrets で GEMINI_API_KEY を設定してください。")
+        st.error("🔑 APIキーが検出されませんでした。Streamlit Cloudの『Manage app』>『Settings』>『Secrets』で GEMINI_API_KEY が正しく設定されているか確認してください。")
     else:
         with st.spinner("気象データ取得＆AI分析中..."):
-            coords = LOCATIONS[selected_loc]
-            weather_data = get_detailed_weather(coords["lat"], coords["lon"])
-            result = analyze_stability_with_gemini(selected_loc, weather_data)
-            
-            st.subheader(f"📍 {selected_loc} の気象解析結果")
-            st.markdown(result)
+            try:
+                coords = LOCATIONS[selected_loc]
+                weather_data = get_detailed_weather(coords["lat"], coords["lon"])
+                result = analyze_stability_with_gemini(selected_loc, weather_data, GEMINI_API_KEY)
+                
+                st.subheader(f"📍 {selected_loc} の気象解析結果")
+                st.markdown(result)
+            except Exception as e:
+                st.error(f"解析中にエラーが発生しました: {e}")
