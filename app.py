@@ -49,7 +49,6 @@ def get_detailed_weather(lat, lon):
         "forecast_minutely_15": 12,
         "forecast_days": 2
     }
-    # キャッシュを回避するためにヘッダーを設定
     headers = {"Cache-Control": "no-cache"}
     res = requests.get(url, params=params, headers=headers)
     return res.json()
@@ -130,55 +129,79 @@ if get_data_clicked:
 if st.session_state.current_weather:
     weather_data = st.session_state.current_weather
     hourly = weather_data.get("hourly", {})
-    times_all = [t.replace("T", " ") for t in hourly.get("time", [])]
+    
+    # 時刻リストの取得 (例: "2026-09-10T04:00" -> "2026-09-10 04:00")
+    times_raw = hourly.get("time", [])
     temps_all = hourly.get("temperature_2m", [])
     probs_all = hourly.get("precipitation_probability", [])
     precips_all = hourly.get("precipitation", [])
+
+    # 現在時刻に最も近いインデックスを取得
+    now_str = datetime.now().strftime("%Y-%m-%dT%H:00")
+    start_idx = 0
+    if now_str in times_raw:
+        start_idx = times_raw.index(now_str)
+    else:
+        # ぴったり一致しない場合は現在時刻以降の最初のデータを探す
+        now_dt = datetime.now()
+        for idx, t_str in enumerate(times_raw):
+            t_dt = datetime.strptime(t_str, "%Y-%m-%dT%H:%M")
+            if t_dt >= now_dt:
+                start_idx = max(0, idx - 1)  # 直近の時刻
+                break
+
+    # 現在以降のデータをスライス
+    times_now = [t.replace("T", " ") for t in times_raw[start_idx:]]
+    temps_now = temps_all[start_idx:]
+    probs_now = probs_all[start_idx:]
+    precips_now = precips_all[start_idx:]
 
     st.subheader(f"📊 {selected_loc} の気象状態")
     if st.session_state.fetched_at:
         st.caption(f"最終取得日時: {st.session_state.fetched_at}")
 
     c1, c2, c3 = st.columns(3)
-    if temps_all:
-        c1.metric("現在の気温", f"{temps_all[0]} ℃")
-    if probs_all:
-        c2.metric("現在の降水確率", f"{probs_all[0]} %")
-    if precips_all:
-        c3.metric("直近の予測降水量", f"{precips_all[0]} mm")
+    if temps_now:
+        c1.metric("現在の気温", f"{temps_now[0]} ℃")
+    if probs_now:
+        c2.metric("現在の降水確率", f"{probs_now[0]} %")
+    if precips_now:
+        c3.metric("直近の予測降水量", f"{precips_now[0]} mm")
 
     st.subheader("📅 予報データ")
-    tab1, tab2, tab3 = st.tabs(["直近6時間", "24時間一覧", "24時間グラフ"])
+    tab1, tab2, tab3 = st.tabs(["直近6時間", "これからの24時間", "24時間グラフ"])
 
     with tab1:
+        # 今現在からの直近6時間分のみを抽出
         df_6h = pd.DataFrame({
-            "時間": [t.split(" ")[1] for t in times_all[:6]],
-            "気温 (℃)": temps_all[:6],
-            "降水確率 (%)": probs_all[:6],
-            "降水量 (mm)": precips_all[:6]
+            "時間": [t.split(" ")[1] for t in times_now[:6]],
+            "気温 (℃)": temps_now[:6],
+            "降水確率 (%)": probs_now[:6],
+            "降水量 (mm)": precips_now[:6]
         })
         st.dataframe(df_6h, use_container_width=True)
 
     with tab2:
+        # 今現在からの24時間分を表示
         df_24h = pd.DataFrame({
-            "日時": times_all[:24],
-            "気温 (℃)": temps_all[:24],
-            "降水確率 (%)": probs_all[:24],
-            "降水量 (mm)": precips_all[:24]
+            "日時": times_now[:24],
+            "気温 (℃)": temps_now[:24],
+            "降水確率 (%)": probs_now[:24],
+            "降水量 (mm)": precips_now[:24]
         })
         st.dataframe(df_24h, use_container_width=True, height=300)
 
     with tab3:
+        # 今現在からの24時間グラフを表示
         chart_data = pd.DataFrame({
-            "時間": [t.split(" ")[1] for t in times_all[:24]],
-            "気温 (℃)": temps_all[:24],
-            "降水量 (mm)": precips_all[:24]
+            "時間": [t.split(" ")[1] for t in times_now[:24]],
+            "気温 (℃)": temps_now[:24],
+            "降水量 (mm)": precips_now[:24]
         }).set_index("時間")
         st.line_chart(chart_data)
 
 # 2. AI分析ボタンが押された場合
 if analyze_ai_clicked:
-    # まだデータがない場合は自動取得
     if not st.session_state.current_weather:
         coords = LOCATIONS[selected_loc]
         st.session_state.current_weather = get_detailed_weather(coords["lat"], coords["lon"])
