@@ -1,15 +1,16 @@
 import os
 import requests
 import json
-from flask import Flask, render_template_string, request
+import streamlit as st
 from google import genai
 
-app = Flask(__name__)
+# ページ基本設定
+st.set_page_config(page_title="気象安定度・雨雲解析ダッシュボード", layout="centered")
 
-# APIキーの設定 (GitHub Secrets または環境変数から取得)
+# APIキーの取得（Streamlit Secrets または環境変数）
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# 監視・判定対象のエリアリスト（主要区および周辺都市の緯度・経度）
+# エリアリスト（緯度・経度）
 LOCATIONS = {
     "名古屋市港区": {"lat": 35.1084, "lon": 136.8853},
     "名古屋市守山区": {"lat": 35.2017, "lon": 136.9856},
@@ -22,7 +23,6 @@ LOCATIONS = {
 }
 
 def get_detailed_weather(lat, lon):
-    """Open-Meteo APIから雨量・風向・風速・湿度データを取得"""
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat,
@@ -30,14 +30,13 @@ def get_detailed_weather(lat, lon):
         "minutely_15": ["precipitation", "rain"],
         "hourly": ["relative_humidity_2m", "wind_speed_10m", "wind_direction_10m", "surface_pressure"],
         "timezone": "Asia/Tokyo",
-        "forecast_minutely_15": 12, # 今後3時間分
+        "forecast_minutely_15": 12,
         "forecast_days": 1
     }
     res = requests.get(url, params=params)
     return res.json()
 
 def analyze_stability_with_gemini(location_name, weather_data):
-    """風速・湿度・風向データを含めて気象の安定度と降水リスクをGeminiで判定"""
     client = genai.Client(api_key=GEMINI_API_KEY)
     
     prompt = f"""
@@ -68,60 +67,19 @@ def analyze_stability_with_gemini(location_name, weather_data):
     )
     return response.text
 
-# 簡易UIテンプレート
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>気象安定度・雨雲解析ダッシュボード</title>
-    <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; background: #f4f7f8; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        select, button { padding: 10px; font-size: 16px; border-radius: 6px; border: 1px solid #ccc; }
-        button { background: #007bff; color: white; border: none; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .result { margin-top: 20px; background: #eef6ff; padding: 15px; border-radius: 8px; white-space: pre-wrap; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h2>🌦️ 安定度・強風・雨雲リアルタイム解析</h2>
-        <form method="POST">
-            <label for="location"><b>エリアを選択:</b></label>
-            <select name="location" id="location">
-                {% for loc in locations %}
-                    <option value="{{ loc }}" {% if loc == selected_loc %}selected{% endif %}>{{ loc }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit">AI分析を実行</button>
-        </form>
+# UI表示
+st.title("🌦️ 安定度・強風・雨雲リアルタイム解析")
 
-        {% if result %}
-        <div class="result">
-            <h3>📍 {{ selected_loc }} の気象解析結果</h3>
-            <div>{{ result }}</div>
-        </div>
-        {% endif %}
-    </div>
-</body>
-</html>
-"""
+selected_loc = st.selectbox("エリアを選択してください", list(LOCATIONS.keys()))
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    selected_loc = "名古屋市港区"
-    result = None
-
-    if request.method == "POST":
-        selected_loc = request.form.get("location")
-        
-    if selected_loc in LOCATIONS:
-        coords = LOCATIONS[selected_loc]
-        weather_data = get_detailed_weather(coords["lat"], coords["lon"])
-        result = analyze_stability_with_gemini(selected_loc, weather_data)
-
-    return render_template_string(HTML_TEMPLATE, locations=LOCATIONS.keys(), selected_loc=selected_loc, result=result)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+if st.button("AI分析を実行"):
+    if not GEMINI_API_KEY:
+        st.error("GEMINI_API_KEY が設定されていません。Streamlit の Secrets 設定を確認してください。")
+    else:
+        with st.spinner("気象データ取得＆AI分析中..."):
+            coords = LOCATIONS[selected_loc]
+            weather_data = get_detailed_weather(coords["lat"], coords["lon"])
+            result = analyze_stability_with_gemini(selected_loc, weather_data)
+            
+            st.subheader(f"📍 {selected_loc} の気象解析結果")
+            st.markdown(result)
