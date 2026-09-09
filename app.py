@@ -139,16 +139,14 @@ if st.session_state.current_weather:
     probs_all = hourly.get("precipitation_probability", [])
     precips_all = hourly.get("precipitation", [])
 
-    # 日本時間での「現在の年月日時」を取得 (例: "2026-09-10T13:00")
+    # 日本時間での「現在の年月日時」を取得
     now_jst = datetime.now(JST)
     now_str = now_jst.strftime("%Y-%m-%dT%H:00")
 
     start_idx = 0
-    # 一致する時間インデックスを探す
     if now_str in times_raw:
         start_idx = times_raw.index(now_str)
     else:
-        # 見つからない場合は日本時間と比較して最も近い直近のインデックスを見つける
         for idx, t_str in enumerate(times_raw):
             t_dt = JST.localize(datetime.strptime(t_str, "%Y-%m-%dT%H:%M"))
             if t_dt >= now_jst:
@@ -177,24 +175,24 @@ if st.session_state.current_weather:
     tab1, tab2, tab3 = st.tabs(["直近6時間", "これからの24時間", "24時間グラフ"])
 
     with tab1:
-        # 日本時間の「現在」から6時間分
+        # 今現在からの直近6時間分（インデックス非表示）
         df_6h = pd.DataFrame({
             "時間": [t.split(" ")[1] for t in times_now[:6]],
             "気温 (℃)": temps_now[:6],
             "降水確率 (%)": probs_now[:6],
             "降水量 (mm)": precips_now[:6]
         })
-        st.dataframe(df_6h, use_container_width=True)
+        st.dataframe(df_6h, use_container_width=True, hide_index=True)
 
     with tab2:
-        # これからの24時間分
+        # 今現在からの24時間分（インデックス非表示）
         df_24h = pd.DataFrame({
             "日時": times_now[:24],
             "気温 (℃)": temps_now[:24],
             "降水確率 (%)": probs_now[:24],
             "降水量 (mm)": precips_now[:24]
         })
-        st.dataframe(df_24h, use_container_width=True, height=300)
+        st.dataframe(df_24h, use_container_width=True, height=300, hide_index=True)
 
     with tab3:
         # これからの24時間グラフ
