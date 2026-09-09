@@ -41,7 +41,6 @@ def get_detailed_weather(lat, lon):
     return res.json()
 
 def analyze_stability_with_gemini(location_name, weather_data, api_key):
-    # APIキーを明示的に渡してClientをインスタンス化
     client = genai.Client(api_key=api_key)
     
     prompt = f"""
@@ -67,7 +66,7 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
     """
 
     response = client.models.generate_content(
-        model='gemini-2.0-flash',
+        model='gemini-2.5-flash',
         contents=prompt
     )
     return response.text
