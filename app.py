@@ -5,7 +5,11 @@ import json
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import pytz
 from google import genai
+
+# タイムゾーンの設定（日本時間）
+JST = pytz.timezone("Asia/Tokyo")
 
 # ページ基本設定
 st.set_page_config(page_title="気象安定度・雨雲解析ダッシュボード", layout="centered")
@@ -123,34 +127,35 @@ if get_data_clicked:
         coords = LOCATIONS[selected_loc]
         st.session_state.current_weather = get_detailed_weather(coords["lat"], coords["lon"])
         st.session_state.current_location = selected_loc
-        st.session_state.fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        st.session_state.fetched_at = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
 
 # 気象データが存在する場合に表示
 if st.session_state.current_weather:
     weather_data = st.session_state.current_weather
     hourly = weather_data.get("hourly", {})
     
-    # 時刻リストの取得 (例: "2026-09-10T04:00" -> "2026-09-10 04:00")
     times_raw = hourly.get("time", [])
     temps_all = hourly.get("temperature_2m", [])
     probs_all = hourly.get("precipitation_probability", [])
     precips_all = hourly.get("precipitation", [])
 
-    # 現在時刻に最も近いインデックスを取得
-    now_str = datetime.now().strftime("%Y-%m-%dT%H:00")
+    # 日本時間での「現在の年月日時」を取得 (例: "2026-09-10T13:00")
+    now_jst = datetime.now(JST)
+    now_str = now_jst.strftime("%Y-%m-%dT%H:00")
+
     start_idx = 0
+    # 一致する時間インデックスを探す
     if now_str in times_raw:
         start_idx = times_raw.index(now_str)
     else:
-        # ぴったり一致しない場合は現在時刻以降の最初のデータを探す
-        now_dt = datetime.now()
+        # 見つからない場合は日本時間と比較して最も近い直近のインデックスを見つける
         for idx, t_str in enumerate(times_raw):
-            t_dt = datetime.strptime(t_str, "%Y-%m-%dT%H:%M")
-            if t_dt >= now_dt:
-                start_idx = max(0, idx - 1)  # 直近の時刻
+            t_dt = JST.localize(datetime.strptime(t_str, "%Y-%m-%dT%H:%M"))
+            if t_dt >= now_jst:
+                start_idx = max(0, idx - 1)
                 break
 
-    # 現在以降のデータをスライス
+    # 現在以降のデータを抽出
     times_now = [t.replace("T", " ") for t in times_raw[start_idx:]]
     temps_now = temps_all[start_idx:]
     probs_now = probs_all[start_idx:]
@@ -158,7 +163,7 @@ if st.session_state.current_weather:
 
     st.subheader(f"📊 {selected_loc} の気象状態")
     if st.session_state.fetched_at:
-        st.caption(f"最終取得日時: {st.session_state.fetched_at}")
+        st.caption(f"最終取得日時: {st.session_state.fetched_at} (JST)")
 
     c1, c2, c3 = st.columns(3)
     if temps_now:
@@ -172,7 +177,7 @@ if st.session_state.current_weather:
     tab1, tab2, tab3 = st.tabs(["直近6時間", "これからの24時間", "24時間グラフ"])
 
     with tab1:
-        # 今現在からの直近6時間分のみを抽出
+        # 日本時間の「現在」から6時間分
         df_6h = pd.DataFrame({
             "時間": [t.split(" ")[1] for t in times_now[:6]],
             "気温 (℃)": temps_now[:6],
@@ -182,7 +187,7 @@ if st.session_state.current_weather:
         st.dataframe(df_6h, use_container_width=True)
 
     with tab2:
-        # 今現在からの24時間分を表示
+        # これからの24時間分
         df_24h = pd.DataFrame({
             "日時": times_now[:24],
             "気温 (℃)": temps_now[:24],
@@ -192,7 +197,7 @@ if st.session_state.current_weather:
         st.dataframe(df_24h, use_container_width=True, height=300)
 
     with tab3:
-        # 今現在からの24時間グラフを表示
+        # これからの24時間グラフ
         chart_data = pd.DataFrame({
             "時間": [t.split(" ")[1] for t in times_now[:24]],
             "気温 (℃)": temps_now[:24],
@@ -206,7 +211,7 @@ if analyze_ai_clicked:
         coords = LOCATIONS[selected_loc]
         st.session_state.current_weather = get_detailed_weather(coords["lat"], coords["lon"])
         st.session_state.current_location = selected_loc
-        st.session_state.fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        st.session_state.fetched_at = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
 
     if not GEMINI_API_KEY:
         st.error("🔑 APIキーが検出されませんでした。Secrets を確認してください。")
