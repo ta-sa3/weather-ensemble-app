@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import json
 import streamlit as st
@@ -75,11 +76,27 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
     回答は親しみやすく読みやすいMarkdown形式（150〜250文字程度）で作成してください。
     """
 
-    response = client.models.generate_content(
-        model='gemini-3.6-flash',
-        contents=prompt
-    )
-    return response.text
+    # 試行するモデル順（高負荷時のフォールバック用）
+    models_to_try = ['gemini-3.6-flash', 'gemini-1.5-flash']
+    
+    for model_name in models_to_try:
+        # 各モデルで最大2回リトライ
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                return response.text
+            except Exception as e:
+                # 503エラー（一時的高負荷）の場合は1.5秒待ってリトライ
+                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                    time.sleep(1.5)
+                    continue
+                else:
+                    raise e
+                    
+    raise Exception("現在Gemini APIが混雑しています。数十秒おいてから再度お試しください。")
 
 # UI表示
 st.title("🌦️ 安定度・気温・雨雲リアルタイム解析")
