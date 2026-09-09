@@ -5,6 +5,7 @@ import time
 import pandas as pd
 import plotly.express as px
 from google import genai
+from datetime import datetime, timedelta, timezone
 
 # ==========================================
 # 1. ページ基本設定
@@ -24,9 +25,12 @@ CITY_COORDINATES = {
     "仙台": (38.2682, 140.8694)
 }
 
+# 日本標準時 (JST)
+JST = timezone(timedelta(hours=9))
+
 # ==========================================
 # 2. データ取得関数 (Open-Meteo API)
-# 短時間キャッシュ(ttl=300秒=5分)で最新データを自動維持
+# 現在時刻以降の直近12時間を動的に切り出し (ttl=300秒)
 # ==========================================
 @st.cache_data(ttl=300)
 def fetch_hourly_ensemble_data(latitude, longitude):
@@ -38,25 +42,45 @@ def fetch_hourly_ensemble_data(latitude, longitude):
         data = response.json()
         
         hourly = data.get("hourly", {})
-        times = [t.split("T")[1] for t in hourly.get("time", [])[:12]] # 直近12時間分
+        raw_times = hourly.get("time", [])
         
-        prob_jma = hourly.get("precipitation_probability_jma_seamless", hourly.get("precipitation_probability", []))[:12]
-        prob_gfs = hourly.get("precipitation_probability_gfs_seamless", [])[:12]
-        prob_ecm = hourly.get("precipitation_probability_ecmwf_ifs025", [])[:12]
+        if not raw_times:
+            st.error("気象データの時刻情報が空です。")
+            return None, None
+            
+        # 現在時刻 (JST) の「現在の時間 (例: 14:00)」の文字列フォーマットを作成
+        now_jst = datetime.now(JST)
+        current_time_str = now_jst.strftime("%Y-%m-%dT%H:00")
         
-        precip_jma = hourly.get("precipitation_jma_seamless", hourly.get("precipitation", []))[:12]
-        precip_gfs = hourly.get("precipitation_gfs_seamless", [])[:12]
-        precip_ecm = hourly.get("precipitation_ecmwf_ifs025", [])[:12]
+        # 配列内から現在時刻以降インデックスを探す（見つからなければ0）
+        start_idx = 0
+        for idx, t in enumerate(raw_times):
+            if t >= current_time_str:
+                start_idx = idx
+                break
+                
+        end_idx = start_idx + 12
+        
+        # 現在時刻から12時間分のみ切り出し
+        target_times = [t.split("T")[1] for t in raw_times[start_idx:end_idx]]
+        
+        prob_jma = hourly.get("precipitation_probability_jma_seamless", hourly.get("precipitation_probability", []))[start_idx:end_idx]
+        prob_gfs = hourly.get("precipitation_probability_gfs_seamless", [])[start_idx:end_idx]
+        prob_ecm = hourly.get("precipitation_probability_ecmwf_ifs025", [])[start_idx:end_idx]
+        
+        precip_jma = hourly.get("precipitation_jma_seamless", hourly.get("precipitation", []))[start_idx:end_idx]
+        precip_gfs = hourly.get("precipitation_gfs_seamless", [])[start_idx:end_idx]
+        precip_ecm = hourly.get("precipitation_ecmwf_ifs025", [])[start_idx:end_idx]
 
         prob_data = {
-            "時刻": times,
+            "時刻": target_times,
             "気象庁 (JMA)": prob_jma,
             "米国 (GFS)": prob_gfs,
             "欧州 (ECMWF)": prob_ecm
         }
         
         precip_data = {
-            "時刻": times,
+            "時刻": target_times,
             "気象庁 (JMA)": precip_jma,
             "米国 (GFS)": precip_gfs,
             "欧州 (ECMWF)": precip_ecm
@@ -69,7 +93,6 @@ def fetch_hourly_ensemble_data(latitude, longitude):
 
 # ==========================================
 # 3. GeminiによるAI分析関数 (gemini-3.6-flash)
-# 取得データをもとにAI分析結果も短時間(5分)キャッシュして高速化
 # ==========================================
 @st.cache_data(ttl=300)
 def analyze_ensemble_with_gemini(api_key, city_name, df_prob, df_precip):
@@ -145,13 +168,12 @@ else:
 
 selected_city = st.sidebar.selectbox("対象エリアを選択", list(CITY_COORDINATES.keys()))
 
-# 手動で強制リフレッシュ（最新取得）するためのボタンも設置
 if st.sidebar.button("🔄 手動でデータを再更新"):
     st.cache_data.clear()
     st.rerun()
 
 # ------------------------------------------
-# 開いた瞬間に自動で最新データを取得・描画する処理
+# 開いた瞬間に現在時刻基準で自動更新する処理
 # ------------------------------------------
 if not api_key_input:
     st.warning("⚠️ Streamlit SecretsにAPIキーを設定するか、サイドバーに入力してください。")
@@ -170,7 +192,7 @@ else:
                 df_prob_melted = df_prob.melt(id_vars=["時刻"], var_name="気象モデル", value_name="降水確率(%)")
                 fig_prob = px.line(
                     df_prob_melted, x="時刻", y="降水確率(%)", color="気象モデル",
-                    markers=True, title="12時間先までの降水確率推移",
+                    markers=True, title="現在時刻から12時間先までの降水確率推移",
                     color_discrete_map={"気象庁 (JMA)": "#1f77b4", "米国 (GFS)": "#ff7f0e", "欧州 (ECMWF)": "#2ca02c"}
                 )
                 fig_prob.update_yaxes(range=[0, 105])
@@ -180,7 +202,7 @@ else:
                 df_precip_melted = df_precip.melt(id_vars=["時刻"], var_name="気象モデル", value_name="降水量(mm)")
                 fig_precip = px.line(
                     df_precip_melted, x="時刻", y="降水量(mm)", color="気象モデル",
-                    markers=True, title="12時間先までの予想降水量推移",
+                    markers=True, title="現在時刻から12時間先までの予想降水量推移",
                     color_discrete_map={"気象庁 (JMA)": "#1f77b4", "米国 (GFS)": "#ff7f0e", "欧州 (ECMWF)": "#2ca02c"}
                 )
                 st.plotly_chart(fig_precip, use_container_width=True)
