@@ -2,6 +2,7 @@ import os
 import requests
 import json
 import streamlit as st
+import pandas as pd
 from google import genai
 
 # ページ基本設定
@@ -16,6 +17,7 @@ elif "GEMINI_API_KEY" in os.environ:
 
 # エリアリスト（緯度・経度）
 LOCATIONS = {
+    "名古屋市西区": {"lat": 35.1950, "lon": 136.8878},
     "名古屋市港区": {"lat": 35.1084, "lon": 136.8853},
     "名古屋市守山区": {"lat": 35.2017, "lon": 136.9856},
     "名古屋市緑区": {"lat": 35.0822, "lon": 136.9744},
@@ -32,7 +34,15 @@ def get_detailed_weather(lat, lon):
         "latitude": lat,
         "longitude": lon,
         "minutely_15": ["precipitation", "rain"],
-        "hourly": ["relative_humidity_2m", "wind_speed_10m", "wind_direction_10m", "surface_pressure"],
+        "hourly": [
+            "temperature_2m",            # 気温 (℃)
+            "precipitation_probability", # 降水確率 (%)
+            "precipitation",             # 降水量 (mm)
+            "relative_humidity_2m",      # 湿度 (%)
+            "wind_speed_10m",            # 風速 (m/s)
+            "wind_direction_10m",        # 風向 (度)
+            "surface_pressure"           # 気圧 (hPa)
+        ],
         "timezone": "Asia/Tokyo",
         "forecast_minutely_15": 12,
         "forecast_days": 1
@@ -49,18 +59,18 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
 
     データ概要:
     - 15分単位の降水量予測: {weather_data.get('minutely_15', {})}
-    - 時間単位の環境データ (湿度・風速・風向・気圧): {weather_data.get('hourly', {})}
+    - 時間単位の環境データ (気温・降水確率・降水量・湿度・風速・風向・気圧): {weather_data.get('hourly', {})}
 
     【分析依頼】
     以下のフォーマットに従って、気象判定を行ってください：
 
     1. **総合評価**（例: 安定・やや不安定・荒天の警戒が必要 など）
-    2. **大気の安定度と風・湿度の分析**:
-       - 湿度や風速、風向の変化から、ゲリラ豪雨や急な前線通過のリスク、大気の安定性を簡潔に解説してください。
+    2. **気温・降水量・大気安定度の分析**:
+       - 気温や降水確率の推移、湿度・風速から見た急な雨や前線通過のリスクを簡潔に解説してください。
     3. **雨のリスクと推移**:
-       - 今後3時間以内に雨が降るか、何時ごろに強まるか。
+       - 今後3時間以内に雨が降るか、降水量・確率のピークは何時ごろか。
     4. **住民への具体的なアドバイス**:
-       - 洗濯物、傘の準備、外出時の注意点など。
+       - 服装選び、洗濯物、傘の準備、外出時の注意点など。
 
     回答は親しみやすく読みやすいMarkdown形式（150〜250文字程度）で作成してください。
     """
@@ -72,21 +82,50 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
     return response.text
 
 # UI表示
-st.title("🌦️ 安定度・強風・雨雲リアルタイム解析")
+st.title("🌦️ 安定度・気温・雨雲リアルタイム解析")
 
 selected_loc = st.selectbox("エリアを選択してください", list(LOCATIONS.keys()))
 
-if st.button("AI分析を実行"):
+if st.button("AI分析・データ取得を実行"):
     if not GEMINI_API_KEY:
-        st.error("🔑 APIキーが検出されませんでした。Streamlit Cloudの『Manage app』>『Settings』>『Secrets』で GEMINI_API_KEY が正しく設定されているか確認してください。")
+        st.error("🔑 APIキーが検出されませんでした。Streamlit Cloudの Secrets で GEMINI_API_KEY を確認してください。")
     else:
         with st.spinner("気象データ取得＆AI分析中..."):
             try:
                 coords = LOCATIONS[selected_loc]
                 weather_data = get_detailed_weather(coords["lat"], coords["lon"])
-                result = analyze_stability_with_gemini(selected_loc, weather_data, GEMINI_API_KEY)
                 
-                st.subheader(f"📍 {selected_loc} の気象解析結果")
+                # 今後の時間別データを表示用カードとして整形
+                hourly = weather_data.get("hourly", {})
+                times = hourly.get("time", [])[:6] # 今後6時間分
+                temps = hourly.get("temperature_2m", [])[:6]
+                probs = hourly.get("precipitation_probability", [])[:6]
+                precips = hourly.get("precipitation", [])[:6]
+
+                # 気象データの主要メトリクス表示
+                st.subheader(f"📊 {selected_loc} の直近気象データ")
+                col1, col2, col3 = st.columns(3)
+                if temps:
+                    col1.metric("現在の気温", f"{temps[0]} ℃")
+                if probs:
+                    col2.metric("現在の降水確率", f"{probs[0]} %")
+                if precips:
+                    col3.metric("直近の予測降水量", f"{precips[0]} mm")
+
+                # 時間別詳細表
+                if times:
+                    df = pd.DataFrame({
+                        "時間": [t.split("T")[1] for t in times],
+                        "気温 (℃)": temps,
+                        "降水確率 (%)": probs,
+                        "降水量 (mm)": precips
+                    })
+                    st.dataframe(df, use_container_width=True)
+
+                # GeminiのAI解析結果表示
+                result = analyze_stability_with_gemini(selected_loc, weather_data, GEMINI_API_KEY)
+                st.subheader(f"🤖 AI気象解析コメント")
                 st.markdown(result)
+
             except Exception as e:
                 st.error(f"解析中にエラーが発生しました: {e}")
