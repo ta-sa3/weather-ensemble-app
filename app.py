@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime
 import pytz
 from google import genai
+import plotly.express as px
 
 # タイムゾーンの設定（日本時間）
 JST = pytz.timezone("Asia/Tokyo")
@@ -227,21 +228,44 @@ if st.session_state.current_weather:
     with tab3:
         times_24h = [t.split(" ")[1] for t in times_now[:24]]
 
-        # --- 各グラフのデータ構造作成 ---
+        # --- CAPE用：数値に基づく判定と色分けの設定 ---
+        cape_levels = []
+        for val in capes_now[:24]:
+            if val <= 1000:
+                cape_levels.append("1000以下 (安定・やや不安定)")
+            elif val <= 2500:
+                cape_levels.append("1000〜2500 (不安定・雷雨リスク)")
+            else:
+                cape_levels.append("2500超 (非常に不安定・豪雨警戒)")
+
+        df_cape_plotly = pd.DataFrame({
+            "時間": times_24h,
+            "CAPE (J/kg)": capes_now[:24],
+            "リスク区分": cape_levels
+        })
+
+        # PlotlyでCAPE用棒グラフの生成
+        fig_cape = px.bar(
+            df_cape_plotly,
+            x="時間",
+            y="CAPE (J/kg)",
+            color="リスク区分",
+            color_discrete_map={
+                "1000以下 (安定・やや不安定)": "#4CAF50",      # 緑
+                "1000〜2500 (不安定・雷雨リスク)": "#FF9800",  # 橙
+                "2500超 (非常に不安定・豪雨警戒)": "#F44336"    # 赤
+            }
+        )
+        fig_cape.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+
         # 1. 気温
         df_temp = pd.DataFrame({"時間": times_24h, "気温 (℃)": temps_now[:24]}).set_index("時間")
 
         # 2. 降水量
         df_precip = pd.DataFrame({"時間": times_24h, "降水量 (mm)": precips_now[:24]}).set_index("時間")
-
-        # 3. CAPE（目安境界線 100/1000/2500 を追加）
-        df_cape = pd.DataFrame({
-            "時間": times_24h,
-            "予測CAPE値": capes_now[:24],
-            "やや不安定 (100)": [100] * 24,
-            "不安定・雷注意 (1000)": [1000] * 24,
-            "非常に不安定 (2500)": [2500] * 24
-        }).set_index("時間")
 
         # スライド表示用リストの設定
         charts_info = [
@@ -249,19 +273,18 @@ if st.session_state.current_weather:
                 "title": "🌡️ 気温の推移 (℃)",
                 "data": df_temp,
                 "type": "line",
-                "color": ["#FF5722"]  # オレンジ
+                "color": ["#FF5722"]
             },
             {
                 "title": "🌧️ 降水量の推移 (mm)",
                 "data": df_precip,
                 "type": "bar",
-                "color": ["#2196F3"]  # 青
+                "color": ["#2196F3"]
             },
             {
-                "title": "⚡ 大気安定度 CAPE (J/kg) と危険度ライン",
-                "data": df_cape,
-                "type": "line",
-                "color": ["#9C27B0", "#4CAF50", "#FF9800", "#F44336"]  # 紫(CAPE), 緑(100), 橙(1000), 赤(2500)
+                "title": "⚡ 大気安定度 CAPE (J/kg)",
+                "type": "plotly",
+                "fig": fig_cape
             }
         ]
 
@@ -291,14 +314,16 @@ if st.session_state.current_weather:
         # 該当するグラフを出力
         if current_chart["type"] == "line":
             st.line_chart(current_chart["data"], color=current_chart["color"])
-        else:
+        elif current_chart["type"] == "bar":
             st.bar_chart(current_chart["data"], color=current_chart["color"])
+        elif current_chart["type"] == "plotly":
+            st.plotly_chart(current_chart["fig"], use_container_width=True)
 
         # CAPE表示（3番目のグラフ）のときのみ解説ガイドを表示
         if st.session_state.chart_idx == 2:
             st.caption("""
-            **【CAPE危険度の目安ライン】**
-            - 🟢 **100**: やや不安定（局地的な雨の可能性）
-            - 🟠 **1000**: 不安定（雷雨・突風のリスクあり）
-            - 🔴 **2500**: 非常に不安定（激しい雷雨・ゲリラ豪雨・ひょうの警戒）
+            **【色分け凡例】**
+            - 🟢 **緑色 (1000以下)**: 安定〜やや不安定
+            - 🟠 **橙色 (1000〜2500)**: 不安定（雷雨・突風リスク）
+            - 🔴 **赤色 (2500超)**: 非常に不安定（激しい雷雨・ゲリラ豪雨警戒）
             """)
