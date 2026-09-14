@@ -229,8 +229,10 @@ if st.session_state.current_weather:
         # 2. 降水量用（Plotlyで色分け）
         precip_levels = []
         for val in precips_now[:24]:
-            if val <= 10:
-                precip_levels.append("10mm以下 (普通〜やや強い雨)")
+            if val <= 5:
+                precip_levels.append("5mm以下 (弱い雨)")
+            elif val <= 10:
+                precip_levels.append("5mm〜10mm (やや強い雨)")
             elif val <= 20:
                 precip_levels.append("10mm〜20mm (注意レベル)")
             else:
@@ -248,9 +250,10 @@ if st.session_state.current_weather:
             y="降水量 (mm)",
             color="雨の強さ",
             color_discrete_map={
-                "10mm以下 (普通〜やや強い雨)": "#2196F3",  # 青
-                "10mm〜20mm (注意レベル)": "#FFC107",      # 黄
-                "20mm超 (土砂降り・大雨警戒)": "#F44336"    # 赤
+                "5mm以下 (弱い雨)": "#4CAF50",         # 緑
+                "5mm〜10mm (やや強い雨)": "#2196F3",     # 青
+                "10mm〜20mm (注意レベル)": "#FFC107",     # 黄
+                "20mm超 (土砂降り・大雨警戒)": "#F44336"   # 赤
             }
         )
         fig_precip.update_layout(
@@ -343,7 +346,8 @@ if st.session_state.current_weather:
         if st.session_state.chart_idx == 1:
             st.caption("""
             **【降水量 色分け凡例】**
-            - 🟦 **青色 (10mm以下)**: 通常の雨〜やや強い雨
+            - 🟩 **緑色 (5mm以下)**: 弱い雨
+            - 🟦 **青色 (5mm〜10mm)**: やや強い雨
             - 🟨 **黄色 (10mm〜20mm)**: ザーザー雨・注意レベル
             - 🟥 **赤色 (20mm超)**: 土砂降り・大雨警戒レベル
             """)
