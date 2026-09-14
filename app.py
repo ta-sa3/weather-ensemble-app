@@ -177,7 +177,7 @@ if st.session_state.current_weather:
     precips_now = precips_all[start_idx:]
     capes_now = capes_all[start_idx:] if capes_all else [0] * len(times_now)
 
-    # --- 1. リアルタイム数値指標（気象情報を上に配置） ---
+    # --- 1. リアルタイム数値指標（トップ配置） ---
     st.subheader(f"📊 {selected_loc} の最新状態")
     if st.session_state.fetched_at:
         st.caption(f"最終取得日時: {st.session_state.fetched_at} (JST)")
@@ -196,12 +196,7 @@ if st.session_state.current_weather:
 
     st.markdown("---")
 
-    # --- 2. AI分析結果（AIアドバイスを直下に配置） ---
-    if st.session_state.ai_analysis:
-        st.subheader("🤖 AI気象解析コメント")
-        st.info(st.session_state.ai_analysis)
-
-    # --- 3. 詳細データ表示（タブ） ---
+    # --- 2. 詳細データ表示（予報データ・タブを中段に配置） ---
     st.subheader("📅 予報データ")
     tab1, tab2, tab3 = st.tabs(["直近6時間", "これからの24時間", "24時間グラフ"])
 
@@ -327,3 +322,10 @@ if st.session_state.current_weather:
             - 🟠 **橙色 (1000〜2500)**: 不安定（雷雨・突風リスク）
             - 🔴 **赤色 (2500超)**: 非常に不安定（激しい雷雨・ゲリラ豪雨警戒）
             """)
+
+    st.markdown("---")
+
+    # --- 3. AI分析結果（AI気象解析コメント・アドバイスを最下部に配置） ---
+    if st.session_state.ai_analysis:
+        st.subheader("🤖 AI気象解析コメント")
+        st.info(st.session_state.ai_analysis)
