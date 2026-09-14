@@ -227,22 +227,41 @@ if st.session_state.current_weather:
     with tab3:
         times_24h = [t.split(" ")[1] for t in times_now[:24]]
 
-        # スライド表示するデータリスト
+        # --- 各グラフのデータ構造作成 ---
+        # 1. 気温
+        df_temp = pd.DataFrame({"時間": times_24h, "気温 (℃)": temps_now[:24]}).set_index("時間")
+
+        # 2. 降水量
+        df_precip = pd.DataFrame({"時間": times_24h, "降水量 (mm)": precips_now[:24]}).set_index("時間")
+
+        # 3. CAPE（目安境界線 100/1000/2500 を追加）
+        df_cape = pd.DataFrame({
+            "時間": times_24h,
+            "予測CAPE値": capes_now[:24],
+            "やや不安定 (100)": [100] * 24,
+            "不安定・雷注意 (1000)": [1000] * 24,
+            "非常に不安定 (2500)": [2500] * 24
+        }).set_index("時間")
+
+        # スライド表示用リストの設定
         charts_info = [
             {
                 "title": "🌡️ 気温の推移 (℃)",
-                "data": pd.DataFrame({"時間": times_24h, "気温 (℃)": temps_now[:24]}).set_index("時間"),
-                "type": "line"
+                "data": df_temp,
+                "type": "line",
+                "color": ["#FF5722"]  # オレンジ
             },
             {
                 "title": "🌧️ 降水量の推移 (mm)",
-                "data": pd.DataFrame({"時間": times_24h, "降水量 (mm)": precips_now[:24]}).set_index("時間"),
-                "type": "bar"
+                "data": df_precip,
+                "type": "bar",
+                "color": ["#2196F3"]  # 青
             },
             {
-                "title": "⚡ 大気安定度 CAPE (J/kg)",
-                "data": pd.DataFrame({"時間": times_24h, "CAPE (J/kg)": capes_now[:24]}).set_index("時間"),
-                "type": "line"
+                "title": "⚡ 大気安定度 CAPE (J/kg) と危険度ライン",
+                "data": df_cape,
+                "type": "line",
+                "color": ["#9C27B0", "#4CAF50", "#FF9800", "#F44336"]  # 紫(CAPE), 緑(100), 橙(1000), 赤(2500)
             }
         ]
 
@@ -257,7 +276,7 @@ if st.session_state.current_weather:
             st.session_state.chart_idx = (st.session_state.chart_idx + 1) % len(charts_info)
             st.rerun()
 
-        # 現在のグラフ情報を取得
+        # 現在選択されているグラフ情報を取得
         current_chart = charts_info[st.session_state.chart_idx]
 
         # タイトルとページインジケーターの表示
@@ -271,6 +290,15 @@ if st.session_state.current_weather:
 
         # 該当するグラフを出力
         if current_chart["type"] == "line":
-            st.line_chart(current_chart["data"])
+            st.line_chart(current_chart["data"], color=current_chart["color"])
         else:
-            st.bar_chart(current_chart["data"])
+            st.bar_chart(current_chart["data"], color=current_chart["color"])
+
+        # CAPE表示（3番目のグラフ）のときのみ解説ガイドを表示
+        if st.session_state.chart_idx == 2:
+            st.caption("""
+            **【CAPE危険度の目安ライン】**
+            - 🟢 **100**: やや不安定（局地的な雨の可能性）
+            - 🟠 **1000**: 不安定（雷雨・突風のリスクあり）
+            - 🔴 **2500**: 非常に不安定（激しい雷雨・ゲリラ豪雨・ひょうの警戒）
+            """)
