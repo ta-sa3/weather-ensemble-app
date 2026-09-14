@@ -177,7 +177,7 @@ if st.session_state.current_weather:
     precips_now = precips_all[start_idx:]
     capes_now = capes_all[start_idx:] if capes_all else [0] * len(times_now)
 
-    # --- 1. リアルタイム数値指標（トップ配置） ---
+    # --- 1. リアルタイム数値指標 ---
     st.subheader(f"📊 {selected_loc} の最新状態")
     if st.session_state.fetched_at:
         st.caption(f"最終取得日時: {st.session_state.fetched_at} (JST)")
@@ -196,7 +196,7 @@ if st.session_state.current_weather:
 
     st.markdown("---")
 
-    # --- 2. 詳細データ表示（予報データ・タブを中段に配置） ---
+    # --- 2. 詳細データ表示（予報データ） ---
     st.subheader("📅 予報データ")
     tab1, tab2, tab3 = st.tabs(["直近6時間", "これからの24時間", "24時間グラフ"])
 
@@ -223,7 +223,42 @@ if st.session_state.current_weather:
     with tab3:
         times_24h = [t.split(" ")[1] for t in times_now[:24]]
 
-        # --- CAPE用：数値に基づく判定と色分けの設定 ---
+        # 1. 気温用データ
+        df_temp = pd.DataFrame({"時間": times_24h, "気温 (℃)": temps_now[:24]}).set_index("時間")
+
+        # 2. 降水量用（Plotlyで色分け）
+        precip_levels = []
+        for val in precips_now[:24]:
+            if val <= 10:
+                precip_levels.append("10mm以下 (普通〜やや強い雨)")
+            elif val <= 20:
+                precip_levels.append("10mm〜20mm (注意レベル)")
+            else:
+                precip_levels.append("20mm超 (土砂降り・大雨警戒)")
+
+        df_precip_plotly = pd.DataFrame({
+            "時間": times_24h,
+            "降水量 (mm)": precips_now[:24],
+            "雨の強さ": precip_levels
+        })
+
+        fig_precip = px.bar(
+            df_precip_plotly,
+            x="時間",
+            y="降水量 (mm)",
+            color="雨の強さ",
+            color_discrete_map={
+                "10mm以下 (普通〜やや強い雨)": "#2196F3",  # 青
+                "10mm〜20mm (注意レベル)": "#FFC107",      # 黄
+                "20mm超 (土砂降り・大雨警戒)": "#F44336"    # 赤
+            }
+        )
+        fig_precip.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+
+        # 3. CAPE用（Plotlyで色分け）
         cape_levels = []
         for val in capes_now[:24]:
             if val <= 1000:
@@ -239,7 +274,6 @@ if st.session_state.current_weather:
             "リスク区分": cape_levels
         })
 
-        # PlotlyでCAPE用棒グラフの生成
         fig_cape = px.bar(
             df_cape_plotly,
             x="時間",
@@ -256,12 +290,6 @@ if st.session_state.current_weather:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
 
-        # 1. 気温
-        df_temp = pd.DataFrame({"時間": times_24h, "気温 (℃)": temps_now[:24]}).set_index("時間")
-
-        # 2. 降水量
-        df_precip = pd.DataFrame({"時間": times_24h, "降水量 (mm)": precips_now[:24]}).set_index("時間")
-
         # スライド表示用リストの設定
         charts_info = [
             {
@@ -272,9 +300,8 @@ if st.session_state.current_weather:
             },
             {
                 "title": "🌧️ 降水量の推移 (mm)",
-                "data": df_precip,
-                "type": "bar",
-                "color": ["#2196F3"]
+                "type": "plotly",
+                "fig": fig_precip
             },
             {
                 "title": "⚡ 大気安定度 CAPE (J/kg)",
@@ -309,15 +336,22 @@ if st.session_state.current_weather:
         # 該当するグラフを出力
         if current_chart["type"] == "line":
             st.line_chart(current_chart["data"], color=current_chart["color"])
-        elif current_chart["type"] == "bar":
-            st.bar_chart(current_chart["data"], color=current_chart["color"])
         elif current_chart["type"] == "plotly":
             st.plotly_chart(current_chart["fig"], use_container_width=True)
 
-        # CAPE表示（3番目のグラフ）のときのみ解説ガイドを表示
+        # 降水量（2番目）の凡例ガイド
+        if st.session_state.chart_idx == 1:
+            st.caption("""
+            **【降水量 色分け凡例】**
+            - 🟦 **青色 (10mm以下)**: 通常の雨〜やや強い雨
+            - 🟨 **黄色 (10mm〜20mm)**: ザーザー雨・注意レベル
+            - 🟥 **赤色 (20mm超)**: 土砂降り・大雨警戒レベル
+            """)
+
+        # CAPE（3番目）の凡例ガイド
         if st.session_state.chart_idx == 2:
             st.caption("""
-            **【色分け凡例】**
+            **【CAPE 色分け凡例】**
             - 🟢 **緑色 (1000以下)**: 安定〜やや不安定
             - 🟠 **橙色 (1000〜2500)**: 不安定（雷雨・突風リスク）
             - 🔴 **赤色 (2500超)**: 非常に不安定（激しい雷雨・ゲリラ豪雨警戒）
@@ -325,7 +359,7 @@ if st.session_state.current_weather:
 
     st.markdown("---")
 
-    # --- 3. AI分析結果（AI気象解析コメント・アドバイスを最下部に配置） ---
+    # --- 3. AI分析結果 ---
     if st.session_state.ai_analysis:
         st.subheader("🤖 AI気象解析コメント")
         st.info(st.session_state.ai_analysis)
