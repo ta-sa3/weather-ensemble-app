@@ -177,14 +177,7 @@ if st.session_state.current_weather:
     precips_now = precips_all[start_idx:]
     capes_now = capes_all[start_idx:] if capes_all else [0] * len(times_now)
 
-    # --- 1. AI分析結果 ---
-    if st.session_state.ai_analysis:
-        st.subheader("🤖 AI気象解析コメント")
-        st.info(st.session_state.ai_analysis)
-
-    st.markdown("---")
-
-    # --- 2. リアルタイム数値指標 ---
+    # --- 1. リアルタイム数値指標（気象情報を上に配置） ---
     st.subheader(f"📊 {selected_loc} の最新状態")
     if st.session_state.fetched_at:
         st.caption(f"最終取得日時: {st.session_state.fetched_at} (JST)")
@@ -200,6 +193,13 @@ if st.session_state.current_weather:
         cape_val = capes_now[0]
         status_text, icon = evaluate_cape(cape_val)
         c4.metric("大気安定度 (CAPE)", f"{cape_val} J/kg", delta=f"{icon} {status_text}", delta_color="off")
+
+    st.markdown("---")
+
+    # --- 2. AI分析結果（AIアドバイスを直下に配置） ---
+    if st.session_state.ai_analysis:
+        st.subheader("🤖 AI気象解析コメント")
+        st.info(st.session_state.ai_analysis)
 
     # --- 3. 詳細データ表示（タブ） ---
     st.subheader("📅 予報データ")
