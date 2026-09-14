@@ -123,7 +123,7 @@ if st.session_state.current_location != selected_loc:
     st.session_state.ai_analysis = None
     st.session_state.current_location = selected_loc
 
-# ひとつにまとめた単一の実行ボタン
+# 一括実行ボタン
 run_clicked = st.button("🚀 最新気象データ取得 ＆ AI分析を実行", use_container_width=True)
 
 # ボタンが押された場合の処理（一括実行）
@@ -174,7 +174,7 @@ if st.session_state.current_weather:
     precips_now = precips_all[start_idx:]
     capes_now = capes_all[start_idx:] if capes_all else [0] * len(times_now)
 
-    # --- 1. AI分析結果（上部に強調表示） ---
+    # --- 1. AI分析結果 ---
     if st.session_state.ai_analysis:
         st.subheader("🤖 AI気象解析コメント")
         st.info(st.session_state.ai_analysis)
@@ -223,10 +223,16 @@ if st.session_state.current_weather:
         st.dataframe(df_24h, use_container_width=True, height=300, hide_index=True)
 
     with tab3:
-        chart_data = pd.DataFrame({
-            "時間": [t.split(" ")[1] for t in times_now[:24]],
-            "気温 (℃)": temps_now[:24],
-            "降水量 (mm)": precips_now[:24],
-            "CAPE (J/kg)": capes_now[:24]
-        }).set_index("時間")
-        st.line_chart(chart_data)
+        times_24h = [t.split(" ")[1] for t in times_now[:24]]
+        
+        st.caption("🌡️ **気温の推移 (℃)**")
+        df_temp = pd.DataFrame({"時間": times_24h, "気温 (℃)": temps_now[:24]}).set_index("時間")
+        st.line_chart(df_temp)
+
+        st.caption("🌧️ **降水量の推移 (mm)**")
+        df_precip = pd.DataFrame({"時間": times_24h, "降水量 (mm)": precips_now[:24]}).set_index("時間")
+        st.bar_chart(df_precip)  # 降水量は棒グラフ表示で直感的に分かりやすく
+
+        st.caption("⚡ **大気安定度 CAPE (J/kg)**")
+        df_cape = pd.DataFrame({"時間": times_24h, "CAPE (J/kg)": capes_now[:24]}).set_index("時間")
+        st.line_chart(df_cape)
