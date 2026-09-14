@@ -12,7 +12,7 @@ from google import genai
 JST = pytz.timezone("Asia/Tokyo")
 
 # ページ基本設定
-st.set_page_config(page_title="気象安定度・雨雲解析ダッシュボード (JMA高精度版)", layout="centered")
+st.set_page_config(page_title="気象安定度・雨雲解析ダッシュボード", layout="centered")
 
 # APIキーの取得
 GEMINI_API_KEY = None
@@ -52,7 +52,7 @@ def get_detailed_weather(lat, lon):
     params = {
         "latitude": lat,
         "longitude": lon,
-        "models": "jma_seamless",  # 気象庁（JMA）高解像度モデルを指定
+        # "models": "jma_seamless" は指定せず、ベストマッチモデル（ECMWF等で高精度補完）を使用
         "minutely_15": ["precipitation", "rain"],
         "hourly": [
             "temperature_2m",
@@ -77,7 +77,7 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
     
     prompt = f"""
     あなたは高度な気象アナリストです。
-    以下のデータは【{location_name}】の気象庁（JMA）ベースの数値予報データです。
+    以下のデータは【{location_name}】の数値予報データです。
 
     データ概要:
     - 15分単位の降水量予測: {weather_data.get('minutely_15', {})}
@@ -116,7 +116,7 @@ def analyze_stability_with_gemini(location_name, weather_data, api_key):
     return "⚠️ 全モデルの無料利用枠上限に達しました。時間をおいてから再度お試しいただくか、上のデータをご参照ください。"
 
 # UI表示
-st.title("🌦️ 安定度・気温・雨雲解析 (JMAモデル版)")
+st.title("🌦️ 安定度・気温・雨雲解析ダッシュボード")
 
 # セッション状態の初期化
 if "current_weather" not in st.session_state:
@@ -135,12 +135,12 @@ if st.session_state.current_location != selected_loc:
 
 # ボタンの並び
 col_btn1, col_btn2 = st.columns(2)
-get_data_clicked = col_btn1.button("🔄 最新データを取得 (JMAモデル)")
+get_data_clicked = col_btn1.button("🔄 最新データを取得")
 analyze_ai_clicked = col_btn2.button("🤖 AI分析を実行 (Gemini)")
 
 # 1. 「最新データを取得」ボタンが押された場合
 if get_data_clicked:
-    with st.spinner("気象庁(JMA)高精度モデルからデータ取得中..."):
+    with st.spinner("気象データ取得中..."):
         coords = LOCATIONS[selected_loc]
         st.session_state.current_weather = get_detailed_weather(coords["lat"], coords["lon"])
         st.session_state.current_location = selected_loc
@@ -152,10 +152,12 @@ if st.session_state.current_weather:
     hourly = weather_data.get("hourly", {})
     
     times_raw = hourly.get("time", [])
-    temps_all = hourly.get("temperature_2m", [])
-    probs_all = hourly.get("precipitation_probability", [])
-    precips_all = hourly.get("precipitation", [])
-    capes_all = hourly.get("cape", [])
+
+    # --- None対策: リスト内の None を安全なデフォルト値(0.0 や 0) に置換 ---
+    temps_all = [t if t is not None else 0.0 for t in hourly.get("temperature_2m", [])]
+    probs_all = [p if p is not None else 0 for p in hourly.get("precipitation_probability", [])]
+    precips_all = [pr if pr is not None else 0.0 for pr in hourly.get("precipitation", [])]
+    capes_all = [c if c is not None else 0 for c in hourly.get("cape", [])]
 
     # 日本時間での「現在の年月日時」を取得
     now_jst = datetime.now(JST)
@@ -178,7 +180,7 @@ if st.session_state.current_weather:
     precips_now = precips_all[start_idx:]
     capes_now = capes_all[start_idx:] if capes_all else [0] * len(times_now)
 
-    st.subheader(f"📊 {selected_loc} の気象状態 (JMAモデル)")
+    st.subheader(f"📊 {selected_loc} の気象状態")
     if st.session_state.fetched_at:
         st.caption(f"最終取得日時: {st.session_state.fetched_at} (JST)")
 
